@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"os"
 	"strings"
-	"sync"
 )
 
 func ReadCSV(file *os.File) [][]string {
@@ -21,12 +20,11 @@ func ReadCSV(file *os.File) [][]string {
 	return csv
 }
 
-func ReadCSVLineToDisplay(file *os.File, mutex *sync.Mutex) []string {
-	var reader *bufio.Scanner = bufio.NewScanner(file)
+func ReadCSVLineToDisplay(reader *bufio.Scanner) []string {
 	var items []string = nil
 	// Scan for tokens
-	for reader.Scan() {
-		
+	if reader.Scan() {
+		items = strings.Split(reader.Text(), ",")
 	}
 	return items
 }
