@@ -3,6 +3,7 @@ package main
 /*
 	Important: In Go, slices, maps, interfaces are implicit pointers. On the other hand, small data types like uint8,
 	float32 or struct are copied.
+
 	Be careful with structs that have pointers like string:
 
 	type string struct {
@@ -12,6 +13,7 @@ package main
 
 	In this case, by passing string as an argument, it copies everything, so if the data is modified, it will only
 	affect to that copy of the pointer but not the original one.
+	Remember that the attributes of the string are immutable because of being private.
 */
 
 import (
