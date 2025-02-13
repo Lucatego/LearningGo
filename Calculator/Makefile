@@ -4,7 +4,7 @@ BINARY_NAME_C = client
 BINARY_NAME_S = server
 
 BINARY_PATH_C = $(BUILD_DIR)/$(BINARY_NAME_C).exe
-BINARY_PATH_S = $(BUILD_DIR)/$(BINARY_NAME_S).exe
+BINARY_PATH_S = $(BUILD_DIR)\\$(BINARY_NAME_S).exe
 
 build:
 	@echo "Compilando $(BINARY_NAME_S)..."
@@ -15,9 +15,16 @@ build:
 
 clean:
 	@echo "Limpiando archivos compilados..."
-	@cd $(BUILD_DIR)
-	@rm *.exe
-	@cd ..
+	@rm -rf $(BUILD_DIR)\*
 	@echo "Limpieza completa"
 	
-.PHONY: clean build
+run_server:
+	@echo "Iniciando servidor..."
+	@echo "Ruta: $(BINARY_PATH_S)"
+	@start "" "$(BINARY_PATH_S)"
+run_client:
+	@echo "Iniciando cliente..."
+	@echo "Ruta: $(BINARY_PATH_C)"
+	@start "" "$(BINARY_PATH_C)"
+	
+.PHONY: clean build run_server run_client
