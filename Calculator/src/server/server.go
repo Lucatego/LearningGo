@@ -19,16 +19,24 @@ func printSync(s string) {
 }
 
 func server(con net.Conn) {
+	var err error
 	// Must close the connection
-	defer con.Close()
+	defer func() {
+		err = con.Close()
+		if err != nil {
+			panic(err)
+		}
+	}()
 	// The calc for this session
 	c := calc.Calculator{}
 	// Reading from the connection
 	reader := bufio.NewReader(con)
 
+	var msg string
+
 	for {
 		// Get the message
-		msg, err := reader.ReadString('\n')
+		msg, err = reader.ReadString('\n')
 		if err != nil {
 			_, _ = con.Write([]byte(err.Error() + "\n"))
 			return
@@ -64,7 +72,12 @@ func main() {
 		return
 	}
 
-	defer skt.Close()
+	defer func(skt net.Listener) {
+		err := skt.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(skt)
 
 	fmt.Println("Listening on " + skt.Addr().String())
 
