@@ -78,7 +78,7 @@ func server_console_input() {
 
 func safe_print() {
 	print_mx.Lock()
-	
+
 	print_mx.Unlock()
 }
 
