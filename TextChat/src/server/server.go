@@ -20,14 +20,15 @@ var (
 	// To manage connections
 	clients     chan net.Conn = make(chan net.Conn, queueMaxSize)
 	fullHandler chan uint8    = make(chan uint8, numberOfHandlers)
+	freeHandler chan uint8    = make(chan uint8, numberOfHandlers)
 	// To print on server console without interfering with the user input
 	output  chan string = make(chan string, queueMaxSize)
 	printMx sync.Mutex
 )
 
 func server(ipAddress string, port string) {
-
-	var runServer bool = true
+	// Bool variable
+	runServer := true
 
 	// Create the socket
 	skt, err := net.Listen(protocol, ipAddress+":"+port)
@@ -65,10 +66,14 @@ func server(ipAddress string, port string) {
 
 	// Finish
 	wg.Wait()
-	skt.Close()
+	err = skt.Close()
+	if err != nil {
+		panic(err)
+		return
+	}
 }
 
-// ConsoleInput()
+// ConsoleInput
 // works as an input for the server. It handles commands like "stop" to stop accepting connections.
 func ConsoleInput() {
 	// Open a terminal
@@ -97,22 +102,28 @@ func DistributeClients() {
 
 	// Status control
 	for {
+		// Saturated server
 		if activeHandlers == 0 {
+			stop <- struct{}{}
 			break
 		}
+		// Check the status
 		select {
 		case id := <-fullHandler:
 			handlerListening[id] = false
 			activeHandlers--
+		case id := <-freeHandler:
+			handlerListening[id] = true
+			activeHandlers++
 		}
 	}
 }
 
 func HandleClients(id uint8) {
 	numberOfClients := uint32(0)
-
+	serving := true
 	// Welcome
-	fmt.Println("Server id: %d\n", id)
+	fmt.Printf("Server id: %d\n", id)
 
 	// For the moment, if the server is full, it breaks (Temporal solution).
 	// In a real solution, the DistributeClients() function must create more handlers
@@ -123,7 +134,13 @@ func HandleClients(id uint8) {
 			if numberOfClients == maxClientsPerHandler {
 				clients <- conn
 				fullHandler <- id
+				serving = false
 				break
+			}
+			// If it is free, handle it. Also, if it was full and now free, inform to the distributor
+			if ((numberOfClients + 2) < maxClientsPerHandler) && (!serving) {
+				freeHandler <- id
+				serving = true
 			}
 
 			ServeClient(conn)
