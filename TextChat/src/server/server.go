@@ -9,27 +9,24 @@ import (
 const (
 	protocol             string = "tcp"
 	queueMaxSize         uint32 = 1024
-	numberOfHandlers     uint8  = 8
-	maxClientsPerHandler uint32 = 64
+	numberOfHandlers     uint32 = 32
+	maxClientsPerHandler uint32 = 32
 )
 
 var (
 	// To safely stop the server
 	wg   sync.WaitGroup
 	stop chan struct{} = make(chan struct{}, 1)
+
 	// To manage connections
-	clients     chan net.Conn = make(chan net.Conn, queueMaxSize)
-	fullHandler chan uint8    = make(chan uint8, numberOfHandlers)
-	freeHandler chan uint8    = make(chan uint8, numberOfHandlers)
+	clients chan net.Conn = make(chan net.Conn, queueMaxSize)
+
 	// To print on server console without interfering with the user input
 	output  chan string = make(chan string, queueMaxSize)
 	printMx sync.Mutex
 )
 
 func server(ipAddress string, port string) {
-	// Bool variable
-	runServer := true
-
 	// Create the socket
 	skt, err := net.Listen(protocol, ipAddress+":"+port)
 	if err != nil {
@@ -41,15 +38,28 @@ func server(ipAddress string, port string) {
 	// TODO: Console input
 	// go ConsoleInput()
 
-	// Handle the client in other process
+	// Distribute clients in other goroutine
 	go DistributeClients()
 
-	// Start listening for clients
-	for runServer {
+	// Start listening for clients trying to connect to the socket
+	RunServer(skt)
+
+	// Finish case
+	wg.Wait()
+	err = skt.Close()
+	if err != nil {
+		panic(err)
+		return
+	}
+}
+
+func RunServer(skt net.Listener) {
+	// Running server
+	for {
 		// Listen
 		select {
 		case <-stop:
-			runServer = false
+			return
 		default:
 			// Accept a client and validate
 			conn, err := skt.Accept()
@@ -63,16 +73,9 @@ func server(ipAddress string, port string) {
 			clients <- conn
 		}
 	}
-
-	// Finish
-	wg.Wait()
-	err = skt.Close()
-	if err != nil {
-		panic(err)
-		return
-	}
 }
 
+/*
 // ConsoleInput
 // works as an input for the server. It handles commands like "stop" to stop accepting connections.
 func ConsoleInput() {
@@ -89,65 +92,65 @@ func SafePrint(output string) {
 	fmt.Printf("%s", output)
 	printMx.Unlock()
 }
+*/
 
 func DistributeClients() {
 	// Here we will receive the connections from the channel to evaluate and distribute them.
-	var handlerListening [numberOfHandlers]bool
-	activeHandlers := numberOfHandlers
-	// Forever loop
-	for i := uint8(0); i < numberOfHandlers; i++ {
-		go HandleClients(i)
-		handlerListening[i] = true
+	var isHandlerListening [numberOfHandlers]bool
+	var handlerChan [numberOfHandlers]chan net.Conn
+	var handlerCapacity [numberOfHandlers]uint32
+	// Create handlers
+	for i := uint32(0); i < numberOfHandlers; i++ {
+		// Create a handler
+		handlerChan[i] = make(chan net.Conn, maxClientsPerHandler)
+		go HandleClients(i, handlerChan[i])
+		// Set its status
+		isHandlerListening[i] = true
+		handlerCapacity[i] = maxClientsPerHandler
 	}
+	activeHandlers := numberOfHandlers
 
 	// Status control
 	for {
-		// Saturated server
+		// Saturated servers case
 		if activeHandlers == 0 {
-			stop <- struct{}{}
-			break
+			continue
 		}
-		// Check the status
+		fmt.Printf("# of free handlers: %d\n", activeHandlers)
+		// Give the connection to the freest server
 		select {
-		case id := <-fullHandler:
-			handlerListening[id] = false
-			activeHandlers--
-		case id := <-freeHandler:
-			handlerListening[id] = true
-			activeHandlers++
+		case conn := <-clients:
+			designedHandler := FreestHandler(&isHandlerListening, &handlerCapacity)
+			// Not valid case or no free handlers
+			if (designedHandler >= numberOfHandlers) || (designedHandler < 0) {
+				clients <- conn
+				break
+			}
+		default:
 		}
 	}
 }
 
-func HandleClients(id uint8) {
-	numberOfClients := uint32(0)
-	serving := true
-	// Welcome
-	fmt.Printf("Server id: %d\n", id)
+func FreestHandler(active *[numberOfHandlers]bool, capacity *[numberOfHandlers]uint32) uint32 {
+	var bestId, bestCapacity uint32 = maxClientsPerHandler, maxClientsPerHandler
+	for i := uint32(0); i < numberOfHandlers; i++ {
+		if (capacity[i] < bestCapacity) && (active[i]) {
+			bestCapacity = capacity[i]
+			bestId = i
+		}
+	}
+	return bestId
+}
 
-	// For the moment, if the server is full, it breaks (Temporal solution).
-	// In a real solution, the DistributeClients() function must create more handlers
+func HandleClients(id uint32, clients chan net.Conn) {
+	// The queue is automatically managed by the distributor
 	for {
 		select {
 		case conn := <-clients:
-			// If the handler is full, then give to another
-			if numberOfClients == maxClientsPerHandler {
-				clients <- conn
-				fullHandler <- id
-				serving = false
-				break
-			}
-			// If it is free, handle it. Also, if it was full and now free, inform to the distributor
-			if ((numberOfClients + 2) < maxClientsPerHandler) && (!serving) {
-				freeHandler <- id
-				serving = true
-			}
+			// Manage the connection
 
-			ServeClient(conn)
+			// Finish
+			conn.Close()
 		}
 	}
-}
-
-func ServeClient(conn net.Conn) {
-	// Look in the database
 }
