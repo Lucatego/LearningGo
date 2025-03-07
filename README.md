@@ -10,8 +10,7 @@ A Calculator in Go, to learn structs and the net.Conn usage.
 This proyect consists in a server that recieves connections and process the connections using a SQLite database.
 
 ### Server
-Where everything happens.
-Steps:
+*Where everything happens.* The steps are:
 1. The server recieves the connections from the clients and stores them in a channel that works as a queue
 2. The distributor creates an specific number of handlers to handle the connection in their own queues.
 3. The distributor will check and assing the client to the freest handler.
