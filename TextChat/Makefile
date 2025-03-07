@@ -1,6 +1,6 @@
-MAIN_FILE = main.go
+MAIN_FILE_SERVER = main_server.go
+MAIN_FILE_CLIENT = main_client.go
 
-SRC_SERVER = src/server
 BUILD_DIR = build
 
 BIN_NAME_SERVER = server
@@ -11,8 +11,12 @@ BUILD_PATH_CLIENT = $(BUILD_DIR)\\$(BIN_NAME_CLIENT).exe
 
 build:
 	@echo "Compiling $(BIN_NAME_SERVER)..."
-	@go build -o $(BUILD_PATH_SERVER) $(SRC_SERVER)\\$(MAIN_FILE)
+	@go build -o $(BUILD_PATH_SERVER) $(MAIN_FILE_SERVER)
 	@echo "Server compiled and build in $(BUILD_PATH_SERVER)"
+
+	@echo "Compiling $(BIN_NAME_CLIENT)"
+	@go build -o $(BUILD_PATH_CLIENT) $(MAIN_FILE_CLIENT)
+	@echo "Client compiled and build in $(BUILD_PATH_CLIENT)"
 
 clean:
 	@echo "Cleaning binary files..."
