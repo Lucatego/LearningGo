@@ -16,5 +16,15 @@ This proyect consists in a server that recieves connections and process the conn
 3. The distributor will check and assing the client to the freest handler.
 4. The handler will recieve the connection from its channel and manage it until the connection is closed.
 
+#### The database
+In this proyect, the database is in SQLite, but it would be better if it was on a NoSQL databse. Anyways, it contains three major tables:
+1. User
+2. Conversation
+3. Message
+This tables connects via other tables like UserConversation table and UserMessage table to support group chats.
+
+*To read this database SQL use DB Browser for SQLite.*
+TODO: Add the scripts in its own folder.
+
 ### Client
 TODO
