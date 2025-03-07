@@ -20,7 +20,7 @@ build:
 
 clean:
 	@echo "Cleaning binary files..."
-	@rm -rf $(BUILD_DIR)\\*
+	@rm -rf .\\$(BUILD_DIR)\\*.exe
 	@echo "Finished cleaning"
 
 .PHONY: build clean

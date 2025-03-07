@@ -8,17 +8,22 @@ package client
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 )
 
-func Client(ip_address, port string) {
-	con, err := net.Dial("tcp", ip_address+":"+port)
+func Client(ipAddress, port string, wg *sync.WaitGroup, id int) {
+	if wg != nil {
+		defer (*wg).Done()
+	}
+
+	con, err := net.Dial("tcp", ipAddress+":"+port)
 	if err != nil {
 		panic(err)
 	}
 	defer con.Close()
-	for {
-		fmt.Println("Client > Im connected with ", con.RemoteAddr())
-		time.Sleep(10 * time.Second)
-	}
+
+	fmt.Printf("Client #%d> Im connected with %s\n", id, con.RemoteAddr())
+	time.Sleep(15 * time.Second)
+
 }

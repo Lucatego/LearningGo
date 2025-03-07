@@ -9,9 +9,9 @@ import (
 
 const (
 	protocol             string = "tcp"
-	queueMaxSize         uint32 = 1024
-	numberOfHandlers     uint32 = 32
-	maxClientsPerHandler uint32 = 32
+	numberOfHandlers     uint32 = 4
+	maxClientsPerHandler uint32 = 4
+	queueMaxSize                = numberOfHandlers * maxClientsPerHandler
 )
 
 var (
@@ -21,10 +21,11 @@ var (
 
 	// To manage connections
 	clients = make(chan net.Conn, queueMaxSize)
-
-	// To print on server console without interfering with the user input
-	output  = make(chan string, queueMaxSize)
-	printMx sync.Mutex
+	/*
+		// To print on server console without interfering with the user input
+		output  = make(chan string, queueMaxSize)
+		printMx sync.Mutex
+	*/
 )
 
 func Server(ipAddress, port string) {
@@ -79,20 +80,21 @@ func runServer(skt net.Listener) {
 /*
 // ConsoleInput
 // works as an input for the server. It handles commands like "stop" to stop accepting connections.
-func ConsoleInput() {
-	// Open a terminal
-	var input string
-	for {
-		fmt.Printf("> ")
-		fmt.Scanln(&input)
-	}
-}
 
-func SafePrint(output string) {
-	printMx.Lock()
-	fmt.Printf("%s", output)
-	printMx.Unlock()
-}
+	func ConsoleInput() {
+		// Open a terminal
+		var input string
+		for {
+			fmt.Printf("> ")
+			fmt.Scanln(&input)
+		}
+	}
+
+	func SafePrint(output string) {
+		printMx.Lock()
+		fmt.Printf("%s", output)
+		printMx.Unlock()
+	}
 */
 
 func distributeClients() {
@@ -105,11 +107,9 @@ func distributeClients() {
 		handlerChan[i] = make(chan net.Conn, maxClientsPerHandler)
 		go handleClients(i, handlerChan[i], &handlerMutex[i])
 	}
-	activeHandlers := numberOfHandlers
 
 	// Status control
 	for {
-		fmt.Printf("Distributor > # of free handlers: %d\n", activeHandlers)
 		// Give the connection to the freest server
 		select {
 		case conn := <-clients:
@@ -132,7 +132,9 @@ func distributeClients() {
 func freestHandler(channels []chan net.Conn, mutexes []sync.Mutex) uint32 {
 	// Capacity means free space because we have the information about the number of items in the channel
 	var bestId, lowestUsage = numberOfHandlers, maxClientsPerHandler
+	// This should be done FAST...
 	for i := range channels {
+		// We block the handler to stop receiving connections to evaluate its capacity
 		mutexes[i].Lock()
 		temp := uint32(len(channels[i]))
 		if temp < lowestUsage {
@@ -140,6 +142,7 @@ func freestHandler(channels []chan net.Conn, mutexes []sync.Mutex) uint32 {
 			bestId = uint32(i)
 		}
 	}
+	// After all handlers finished, we unlock them all
 	for i := range mutexes {
 		mutexes[i].Unlock()
 	}
@@ -151,16 +154,21 @@ func handleClients(id uint32, clients chan net.Conn, mutex *sync.Mutex) {
 	for {
 		mutex.Lock()
 		select {
+		// The len(clients) is the critic zone here.
 		case conn := <-clients:
+			// Receive the connection
+			mutex.Unlock()
 			// Manage the connection
-			fmt.Printf("Handler #%d > Handling connetion from %s\n", id, conn.RemoteAddr().String())
+			fmt.Printf("Handler #%d > Handling connection from %s\n", id, conn.RemoteAddr().String())
+			time.Sleep(1 * time.Second)
+			fmt.Printf("Handler #%d > Ending connection with %s\n", id, conn.RemoteAddr().String())
 			// Finish
 			err := conn.Close()
 			if err != nil {
 				fmt.Println(err)
 			}
 		default:
+			mutex.Unlock()
 		}
-		mutex.Unlock()
 	}
 }

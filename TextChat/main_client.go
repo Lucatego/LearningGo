@@ -1,8 +1,19 @@
 package main
 
-import client "TextChat/src/client"
+import (
+	client "TextChat/src/client"
+	"sync"
+)
+
+const numberOfClients = 20
 
 func main() {
 	const ipAddress, port = "127.0.0.1", "1080"
-	client.Client(ipAddress, port)
+	// To emulate a lot of clients
+	var wg sync.WaitGroup
+	wg.Add(numberOfClients)
+	for i := 0; i < numberOfClients; i++ {
+		go client.Client(ipAddress, port, &wg, i)
+	}
+	wg.Wait()
 }
