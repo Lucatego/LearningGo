@@ -3,50 +3,51 @@ package server
 import (
 	"fmt"
 	"net"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
 type Handler struct {
-	id uint64
+	id        uint64
+	handlerWG *sync.WaitGroup // Should only allow wg.Done()
 
-	Clients        chan net.Conn
-	ClientsInQueue uint64
+	Clients chan net.Conn
 }
 
 /*
  *	Public functions to work with the Server structure
  */
 
-func (handler *Handler) Initialize(id, numberOfClients uint64) {
+func (handler *Handler) Initialize(id, numberOfClients uint64, wg *sync.WaitGroup) {
 	handler.id = id
+	handler.handlerWG = wg
+
 	handler.Clients = make(chan net.Conn, numberOfClients)
-	handler.ClientsInQueue = 0
 }
 
 func (handler *Handler) HandleClients() {
-	defer fmt.Println("I'm leaving! ID:", handler.id)
 	fmt.Printf("Handler #%d > I'm running.\n", handler.id)
 	// Receive the client assigned
-	for {
-		select {
-		case client := <-handler.Clients:
-			// Start
-			fmt.Printf("Handler #%d > Received connection from %s\n", handler.id, client.RemoteAddr().String())
-			time.Sleep(3 * time.Second)
-			fmt.Printf("Handler #%d > Ending connection\n", handler.id)
-			// End
-			_ = client.Close()
-			atomic.AddUint64(&handler.ClientsInQueue, ^uint64(0))
+	for client := range handler.Clients {
+		if client == nil {
+			fmt.Printf("Handler #%d is closed.\n", handler.id)
+			break
 		}
+		// Start
+		fmt.Printf("Handler #%d > Processing connection from %s\n", handler.id, client.RemoteAddr().String())
+		time.Sleep(3 * time.Second)
+		// End
+		_ = client.Close()
 	}
+	// End
+	handler.closeHandler()
 }
 
-func (handler *Handler) ReceiveClient(client net.Conn) {
-	handler.Clients <- client
-	atomic.AddUint64(&handler.ClientsInQueue, 1)
-}
+/*
+ *	Private functions used inside the server
+ */
 
-func (handler *Handler) CloseHandler() {
+func (handler *Handler) closeHandler() {
 	close(handler.Clients)
+	handler.handlerWG.Done()
 }

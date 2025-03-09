@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"syscall"
-	"time"
 )
 
 type Server struct {
@@ -59,7 +57,7 @@ func (server *Server) CreateSocket(ipAddress, port, protocol string) {
 func (server *Server) RunServer() {
 	// Initialize handlers
 	for i := range server.handlers {
-		server.handlers[i].Initialize(uint64(i), server.clientsPerHandler)
+		server.handlers[i].Initialize(uint64(i), server.clientsPerHandler, &server.wg)
 		go server.handlers[i].HandleClients()
 		server.wg.Add(1)
 	}
@@ -70,6 +68,9 @@ func (server *Server) RunServer() {
 	for server.isRunning {
 		select {
 		case input := <-server.terminalInput:
+			if input == "exit" {
+				break
+			}
 			fmt.Printf("Server > %s\n", input)
 		default:
 			// Accept a client and validate
@@ -84,7 +85,7 @@ func (server *Server) RunServer() {
 			server.clients <- conn
 		}
 	}
-
+	// End safely
 	server.closeServer()
 }
 
@@ -93,23 +94,26 @@ func (server *Server) RunServer() {
  */
 
 func (server *Server) distributeClients() {
-	for {
-		select {
-		case client := <-server.clients:
-			// Select a handler
-			id, err := server.selectHandler()
-			if err != nil {
-				fmt.Println(err)
-				server.clients <- client
-				continue
+	for client := range server.clients {
+		// End server case
+		if client == nil {
+			fmt.Printf("Server > Stopping distributor.\n")
+			// Send signal for handlers to end
+			for i := range server.handlers {
+				server.handlers[i].Clients <- nil
 			}
-			// Send the client
-			server.handlers[id].ReceiveClient(client)
-		default:
-			// Wait until a client connects
-			fmt.Printf("Distributor > Waiting for a client to connect...\n")
-			time.Sleep(2 * time.Second)
+			break
 		}
+		fmt.Printf("Server > Distributing client from %s\n", client.RemoteAddr().String())
+		// Select a handler
+		id, err := server.selectHandler()
+		if err != nil {
+			fmt.Println(err)
+			server.clients <- client
+			continue
+		}
+		// Send the client
+		server.handlers[id].Clients <- client
 	}
 }
 
@@ -117,7 +121,7 @@ func (server *Server) selectHandler() (uint64, error) {
 	// Search
 	lowestUsage, bestId := uint64(syscall.INFINITE), server.numberOfHandlers+1
 	for i := range server.handlers {
-		usage := atomic.LoadUint64(&server.handlers[i].ClientsInQueue)
+		usage := uint64(len(server.handlers[i].Clients))
 		if usage < lowestUsage {
 			lowestUsage = usage
 			bestId = uint64(i)
@@ -131,14 +135,13 @@ func (server *Server) selectHandler() (uint64, error) {
 }
 
 func (server *Server) closeServer() {
+	// Close the socket
+	_ = server.skt.Close()
+	// Send end signal to distributor
+	server.clients <- nil
 	// Wait for handlers to finish
 	server.wg.Wait()
-	// Terminate them
-	for i := range server.handlers {
-		server.handlers[i].CloseHandler()
-	}
+	// Free memory
 	close(server.clients)
-	// Delete socket and free memory
-	_ = server.skt.Close()
 	server.handlers = nil
 }
