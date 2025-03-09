@@ -20,7 +20,15 @@ build:
 
 clean:
 	@echo "Cleaning binary files..."
-	@rm -rf .\\$(BUILD_DIR)\\*.exe
+	@del $(BUILD_DIR) /S /F
 	@echo "Finished cleaning"
 
-.PHONY: build clean
+run_client:
+	@echo "Starting client..."
+	@$(BUILD_PATH_CLIENT)
+
+run_server:
+	@echo "Starting server..."
+	@$(BUILD_PATH_SERVER)
+
+.PHONY: build clean run_server run_client
