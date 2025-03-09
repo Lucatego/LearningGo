@@ -1,174 +1,144 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 )
 
-const (
-	protocol             string = "tcp"
-	numberOfHandlers     uint32 = 4
-	maxClientsPerHandler uint32 = 4
-	queueMaxSize                = numberOfHandlers * maxClientsPerHandler
-)
+type Server struct {
+	numberOfHandlers  uint64
+	clientsPerHandler uint64
+	url               string
+	protocol          string
 
-var (
-	// To safely stop the server
-	wg   sync.WaitGroup
-	stop = make(chan struct{}, 1)
+	isRunning    bool
+	skt          net.Listener
+	wg           sync.WaitGroup
+	clients      chan net.Conn
+	queueMaxSize uint64
+	handlers     []Handler
 
-	// To manage connections
-	clients = make(chan net.Conn, queueMaxSize)
-	/*
-		// To print on server console without interfering with the user input
-		output  = make(chan string, queueMaxSize)
-		printMx sync.Mutex
-	*/
-)
-
-func Server(ipAddress, port string) {
-	// Create the socket
-	skt, err := net.Listen(protocol, ipAddress+":"+port)
-	if err != nil {
-		panic(err)
-		return
-	}
-	fmt.Printf("Server > Server listening on %s\n", skt.Addr().String())
-
-	// TODO: Console input
-	// go ConsoleInput()
-
-	// Distribute clients in other goroutine
-	go distributeClients()
-
-	// Start listening for clients trying to connect to the socket
-	runServer(skt)
-
-	// Finish case
-	wg.Wait()
-	err = skt.Close()
-	if err != nil {
-		panic(err)
-		return
-	}
+	terminalInput chan string
 }
 
-func runServer(skt net.Listener) {
-	// Running server
-	for {
-		// Listen
+/*
+ *	Public functions to work with the Server structure
+ */
+
+func (server *Server) SetServer(numberOfHandlers, clientsPerHandler uint64) {
+	server.isRunning = false
+	// Set the parameters
+	server.numberOfHandlers = numberOfHandlers
+	server.clientsPerHandler = clientsPerHandler
+	server.queueMaxSize = numberOfHandlers * clientsPerHandler
+	// Allocate memory
+	server.clients = make(chan net.Conn, server.queueMaxSize)
+	server.handlers = make([]Handler, numberOfHandlers)
+	fmt.Printf("Server > Server initialized with %d handlers.\n", numberOfHandlers)
+}
+
+func (server *Server) CreateSocket(ipAddress, port, protocol string) {
+	var err error
+
+	server.url = ipAddress + ":" + port
+	server.protocol = protocol
+
+	server.skt, err = net.Listen(protocol, server.url)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Printf("Server > Socket created on %s.\n", server.skt.Addr().String())
+}
+
+func (server *Server) RunServer() {
+	// Initialize handlers
+	for i := range server.handlers {
+		server.handlers[i].Initialize(uint64(i), server.clientsPerHandler)
+		go server.handlers[i].HandleClients()
+		server.wg.Add(1)
+	}
+	server.isRunning = true
+	// In other goroutine that receives the clients
+	go server.distributeClients()
+	// The server main work
+	for server.isRunning {
 		select {
-		case <-stop:
-			return
+		case input := <-server.terminalInput:
+			fmt.Printf("Server > %s\n", input)
 		default:
 			// Accept a client and validate
-			conn, err := skt.Accept()
+			conn, err := server.skt.Accept()
 			if err != nil {
 				fmt.Println(err)
 				continue
 			}
 			fmt.Printf("Server > New connection from %s\n", conn.RemoteAddr().String())
 
-			// Send the connection to a channel
-			clients <- conn
+			// Send clients to the distributor goroutine
+			server.clients <- conn
 		}
 	}
+
+	server.closeServer()
 }
 
 /*
-// ConsoleInput
-// works as an input for the server. It handles commands like "stop" to stop accepting connections.
+ *	Private functions used inside the server
+ */
 
-	func ConsoleInput() {
-		// Open a terminal
-		var input string
-		for {
-			fmt.Printf("> ")
-			fmt.Scanln(&input)
-		}
-	}
-
-	func SafePrint(output string) {
-		printMx.Lock()
-		fmt.Printf("%s", output)
-		printMx.Unlock()
-	}
-*/
-
-func distributeClients() {
-	// Here we will receive the connections from the channel to evaluate and distribute them.
-	var handlerMutex = make([]sync.Mutex, numberOfHandlers)
-	var handlerChan = make([]chan net.Conn, numberOfHandlers)
-	// Create handlers
-	for i := uint32(0); i < numberOfHandlers; i++ {
-		// Create a handler
-		handlerChan[i] = make(chan net.Conn, maxClientsPerHandler)
-		go handleClients(i, handlerChan[i], &handlerMutex[i])
-	}
-
-	// Status control
+func (server *Server) distributeClients() {
 	for {
-		// Give the connection to the freest server
 		select {
-		case conn := <-clients:
-			designedHandler := freestHandler(handlerChan, handlerMutex)
-			// Not valid case or no free handlers
-			if (designedHandler >= numberOfHandlers) || (designedHandler < 0) {
-				clients <- conn
-				break
+		case client := <-server.clients:
+			// Select a handler
+			id, err := server.selectHandler()
+			if err != nil {
+				fmt.Println(err)
+				server.clients <- client
+				continue
 			}
-			// Valid case
-			handlerChan[designedHandler] <- conn
+			// Send the client
+			server.handlers[id].ReceiveClient(client)
 		default:
-			fmt.Printf("Distributor > Waiting for a client to connect...\n")
 			// Wait until a client connects
+			fmt.Printf("Distributor > Waiting for a client to connect...\n")
 			time.Sleep(2 * time.Second)
 		}
 	}
 }
 
-func freestHandler(channels []chan net.Conn, mutexes []sync.Mutex) uint32 {
-	// Capacity means free space because we have the information about the number of items in the channel
-	var bestId, lowestUsage = numberOfHandlers, maxClientsPerHandler
-	// This should be done FAST...
-	for i := range channels {
-		// We block the handler to stop receiving connections to evaluate its capacity
-		mutexes[i].Lock()
-		temp := uint32(len(channels[i]))
-		if temp < lowestUsage {
-			lowestUsage = temp
-			bestId = uint32(i)
+func (server *Server) selectHandler() (uint64, error) {
+	// Search
+	lowestUsage, bestId := uint64(syscall.INFINITE), server.numberOfHandlers+1
+	for i := range server.handlers {
+		usage := atomic.LoadUint64(&server.handlers[i].ClientsInQueue)
+		if usage < lowestUsage {
+			lowestUsage = usage
+			bestId = uint64(i)
 		}
 	}
-	// After all handlers finished, we unlock them all
-	for i := range mutexes {
-		mutexes[i].Unlock()
+	// Return found
+	if bestId >= server.numberOfHandlers || lowestUsage > server.clientsPerHandler {
+		return bestId, errors.New("error: out of range handler (not found id)")
 	}
-	return bestId
+	return bestId, nil
 }
 
-func handleClients(id uint32, clients chan net.Conn, mutex *sync.Mutex) {
-	// The queue is automatically managed by the distributor
-	for {
-		mutex.Lock()
-		select {
-		// The len(clients) is the critic zone here.
-		case conn := <-clients:
-			// Receive the connection
-			mutex.Unlock()
-			// Manage the connection
-			fmt.Printf("Handler #%d > Handling connection from %s\n", id, conn.RemoteAddr().String())
-			time.Sleep(1 * time.Second)
-			fmt.Printf("Handler #%d > Ending connection with %s\n", id, conn.RemoteAddr().String())
-			// Finish
-			err := conn.Close()
-			if err != nil {
-				fmt.Println(err)
-			}
-		default:
-			mutex.Unlock()
-		}
+func (server *Server) closeServer() {
+	// Wait for handlers to finish
+	server.wg.Wait()
+	// Terminate them
+	for i := range server.handlers {
+		server.handlers[i].CloseHandler()
 	}
+	close(server.clients)
+	// Delete socket and free memory
+	_ = server.skt.Close()
+	server.handlers = nil
 }
