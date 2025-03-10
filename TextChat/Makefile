@@ -1,34 +1,35 @@
-MAIN_FILE_SERVER = main_server.go
-MAIN_FILE_CLIENT = main_client.go
+MAIN_FILE_SERVER = main\\main_server.go
+TEST_FILE_SERVER = main\\main_client.go
 
 BUILD_DIR = build
 
 BIN_NAME_SERVER = server
-BIN_NAME_CLIENT = client
+BIN_NAME_TEST_SERVER = client
 
 BUILD_PATH_SERVER = $(BUILD_DIR)\\$(BIN_NAME_SERVER).exe
-BUILD_PATH_CLIENT = $(BUILD_DIR)\\$(BIN_NAME_CLIENT).exe
+BUILD_PATH_TEST_SERVER = $(BUILD_DIR)\\$(BIN_NAME_TEST_SERVER).exe
 
-build:
+build_server:
 	@echo "Compiling $(BIN_NAME_SERVER)..."
 	@go build -o $(BUILD_PATH_SERVER) $(MAIN_FILE_SERVER)
 	@echo "Server compiled and build in $(BUILD_PATH_SERVER)"
 
-	@echo "Compiling $(BIN_NAME_CLIENT)"
-	@go build -o $(BUILD_PATH_CLIENT) $(MAIN_FILE_CLIENT)
-	@echo "Client compiled and build in $(BUILD_PATH_CLIENT)"
+build_test_server:
+	@echo "Compiling $(BIN_NAME_TEST_SERVER)"
+	@go build -o $(BUILD_PATH_TEST_SERVER) $(TEST_FILE_SERVER)
+	@echo "Client compiled and build in $(BUILD_PATH_TEST_SERVER)"
 
-clean:
+clean_build:
 	@echo "Cleaning binary files..."
 	@del $(BUILD_DIR) /S /F
 	@echo "Finished cleaning"
 
-run_client:
+test_server:
 	@echo "Starting client..."
-	@$(BUILD_PATH_CLIENT)
+	@$(BUILD_PATH_TEST_SERVER)
 
 run_server:
 	@echo "Starting server..."
 	@$(BUILD_PATH_SERVER)
 
-.PHONY: build clean run_server run_client
+.PHONY: build_server build_test_server clean_build run_server test_server
