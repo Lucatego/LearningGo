@@ -2,4 +2,4 @@
 .git/
 build/
 *.exe
-*.db
+TextChat/db/
