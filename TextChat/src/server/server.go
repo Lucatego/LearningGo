@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"syscall"
+	"time"
+)
+
+const (
+	connectionTimeout = 5 * time.Second
 )
 
 type Server struct {
@@ -14,9 +18,10 @@ type Server struct {
 	url               string
 	protocol          string
 
-	isRunning    bool
-	skt          net.Listener
-	wg           sync.WaitGroup
+	isRunning bool
+	skt       net.Listener
+	wg        sync.WaitGroup
+	// TODO: Implement more channels for different kind of messages sent to handlers or distributor
 	clients      chan net.Conn
 	queueMaxSize uint64
 	handlers     []Handler
@@ -69,6 +74,7 @@ func (server *Server) RunServer() {
 		select {
 		case input := <-server.terminalInput:
 			if input == "exit" {
+				server.isRunning = false
 				break
 			}
 			fmt.Printf("Server > %s\n", input)
@@ -81,8 +87,15 @@ func (server *Server) RunServer() {
 			}
 			fmt.Printf("Server > New connection from %s\n", conn.RemoteAddr().String())
 
-			// Send clients to the distributor goroutine
-			server.clients <- conn
+			// TODO: Evaluate, retrying or closing connection if server is full.
+			// Send clients to the distributor goroutine avoiding deadlocks
+			select {
+			case server.clients <- conn:
+				break
+			case <-time.After(connectionTimeout):
+				fmt.Printf("Server > Rejected connection from %s.\n", conn.RemoteAddr().String())
+				_ = conn.Close()
+			}
 		}
 	}
 	// End safely
@@ -94,6 +107,7 @@ func (server *Server) RunServer() {
  */
 
 func (server *Server) distributeClients() {
+	// TODO: Evaluate the usage of for { select { case end: case client: } } to manage more messages.
 	for client := range server.clients {
 		// End server case
 		if client == nil {
@@ -109,6 +123,8 @@ func (server *Server) distributeClients() {
 		id, err := server.selectHandler()
 		if err != nil {
 			fmt.Println(err)
+			// TODO: Check this send, this is the cause of a deadlock, but right now, because of the
+			//       > operator in selectHandler(), the deadlock won´t happen.
 			server.clients <- client
 			continue
 		}
@@ -119,15 +135,21 @@ func (server *Server) distributeClients() {
 
 func (server *Server) selectHandler() (uint64, error) {
 	// Search
-	lowestUsage, bestId := uint64(syscall.INFINITE), server.numberOfHandlers+1
+	lowestUsage, bestId := ^uint64(0), server.numberOfHandlers+1
 	for i := range server.handlers {
 		usage := uint64(len(server.handlers[i].Clients))
+		if usage == 0 {
+			return uint64(i), nil
+		}
 		if usage < lowestUsage {
 			lowestUsage = usage
 			bestId = uint64(i)
 		}
 	}
-	// Return found
+	// Fail case - Note: the > avoids deadlocks, while the >= can make them happen.
+	// Here we must evaluate, aborting connection or retrying to send it to a channel.
+	// Note: I think it's better to send the connection to the first handler found (id: 0)
+	//		 because in this case, we avoid the deadlock and keep managing the connections.
 	if bestId >= server.numberOfHandlers || lowestUsage > server.clientsPerHandler {
 		return bestId, errors.New("error: out of range handler (not found id)")
 	}

@@ -11,6 +11,7 @@ type Handler struct {
 	id        uint64
 	handlerWG *sync.WaitGroup // Should only allow wg.Done()
 
+	// TODO: Use more channels to use more types of messages
 	Clients chan net.Conn
 }
 
