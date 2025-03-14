@@ -7,6 +7,6 @@ import (
 type UserDAO interface {
 	CreateUser(user *model.User) error
 	ReadUser(userID int) (*model.User, error)
-	ModifyUser(user *model.User) error
+	UpdateUser(user *model.User) error
 	DeleteUser(userID int) error
 }

@@ -7,5 +7,6 @@ type Message struct {
 	message  string
 	timeSend time.Time
 
-	sender *User
+	sender       *User
+	conversation *Conversation
 }
