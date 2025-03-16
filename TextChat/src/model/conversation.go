@@ -1,7 +1,7 @@
 package model
 
 type Conversation struct {
-	id          int
-	title       string
-	description string
+	ID          int
+	Title       string
+	Description string
 }
